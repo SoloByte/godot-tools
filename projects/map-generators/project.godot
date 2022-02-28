@@ -1,0 +1,42 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=4
+
+_global_script_classes=[ {
+"base": "Reference",
+"class": "MarchingSquaresGenerator",
+"language": "GDScript",
+"path": "res://marching-squares/MarchingSquaresGenerator.gd"
+} ]
+_global_script_class_icons={
+"MarchingSquaresGenerator": ""
+}
+
+[application]
+
+config/name="map-generators"
+run/main_scene="res://World.tscn"
+config/icon="res://icon.png"
+
+[display]
+
+window/size/width=1920
+window/size/height=1080
+window/size/test_width=1024
+window/size/test_height=600
+window/stretch/mode="viewport"
+window/stretch/aspect="expand"
+
+[physics]
+
+common/enable_pause_aware_picking=true
+
+[rendering]
+
+environment/default_environment="res://default_env.tres"
