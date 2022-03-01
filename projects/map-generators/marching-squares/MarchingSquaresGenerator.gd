@@ -123,49 +123,70 @@ func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1
 
 #figure out a better way to generate the cases
 
-func generateStaticLines(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, edge_factor : float = 0.1) -> Dictionary:
+func generateStaticCases(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.0) -> Dictionary:
+	var field : Array = []
+	var cases : Array = []
+	
+	if use_noise:
+		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+	else:
+		generateFieldRNG(field, rows, cols, edge_factor)
+	generateCases(cases, field, rows, cols, threshold, interpolate)
+	
+	return {
+		"field" : field,
+		"cases" : cases,
+		"res" : resolution,
+		"bounds" : bounds
+	}
+
+func generateStaticLines(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.0) -> Dictionary:
 	var field : Array = []
 	var lines : Array = []
-	var cases : Array = []
-	generateField(field, rows, cols, zoff, threshold, edge_factor)
-	generateLines(lines, cases, field, rows, cols, threshold, interpolate)
+	if use_noise:
+		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+	else:
+		generateFieldRNG(field, rows, cols, edge_factor)
+	generateLines(lines, field, rows, cols, threshold, interpolate)
 	
 	return {
 		"field" : field,
 		"lines" : lines,
-		"cases" : cases,
 		"res" : resolution,
 		"bounds" : bounds
 	}
 
-func generateStaticPolygons(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, edge_factor : float = 0.1) -> Dictionary:
+func generateStaticPolygons(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.1) -> Dictionary:
 	var field : Array = []
 	var polygons : Array = []
-	var cases : Array = []
-	generateField(field, rows, cols, zoff, threshold, edge_factor)
-	generatePolygons(polygons, cases, field, rows, cols, threshold, interpolate)
+	if use_noise:
+		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+	else:
+		generateFieldRNG(field, rows, cols, edge_factor)
+	generatePolygons(polygons, field, rows, cols, threshold, interpolate)
 	
 	return {
 		"field" : field,
 		"polygons" : polygons,
-		"cases" : cases,
 		"res" : resolution,
 		"bounds" : bounds
 	}
 
-func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, edge_factor : float = 0.1) -> Dictionary:
+func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.1) -> Dictionary:
 	var field : Array = []
 	var polygons : Array = []
 	var lines : Array = []
-	var cases : Array = []
-	generateField(field, rows, cols, zoff, threshold, edge_factor)
-	generatePolygons(polygons, cases, field, rows, cols, threshold, interpolate)
-	generateLines(lines, [], field, rows, cols, threshold, interpolate)
+	if use_noise:
+		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+	else:
+		generateFieldRNG(field, rows, cols, edge_factor)
+	generatePolygons(polygons, field, rows, cols, threshold, interpolate)
+	generateLines(lines, field, rows, cols, threshold, interpolate)
+	
 	return {
 		"field" : field,
 		"polygons" : polygons,
 		"lines" : lines,
-		"cases" : cases,
 		"res" : resolution,
 		"bounds" : bounds
 	}
@@ -173,9 +194,18 @@ func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : b
 
 
 
+func generateFieldRNG(field : Array, rows : int, cols : int, edge : float = 0.1) -> void:
+	var start : Vector2 = bounds.position
+	
+	for j in range(0, rows):
+		for i in range(0, cols):
+			var value : float = rng.randf()
+			if edge > 0.0:
+				value *= getDistanceFactor(i, j, rows - 1, cols - 1, edge)
+			
+			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
 
-
-func generateField(field : Array, rows : int, cols : int, zoff : float = 0.0, threshold : float = 0.5, edge : float = 0.1) -> void:
+func generateFieldNoise(field : Array, rows : int, cols : int, zoff : float = 0.0, edge : float = 0.1) -> void:
 	var noise_offset : Vector2 = noise_start_offset
 	var start : Vector2 = bounds.position
 	
@@ -190,7 +220,7 @@ func generateField(field : Array, rows : int, cols : int, zoff : float = 0.0, th
 			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
 			noise_offset.x += noise_increment.x
 
-func generateLines(lines : Array, cases : Array, field : Array, rows : int, cols : int, threshold : float = 0.5, interpolate : bool = true) -> void:
+func generateLines(lines : Array, field : Array, rows : int, cols : int, threshold : float = 0.5, interpolate : bool = true) -> void:
 	for j in range(0, rows - 1):
 		for i in range(0, cols - 1):
 			var index : int = i + j * cols
@@ -201,62 +231,61 @@ func generateLines(lines : Array, cases : Array, field : Array, rows : int, cols
 			var bottom_left : Vector3 = field[index + cols]
 			
 			var case : int = getCase(getState(top_left.z, threshold),getState(top_right.z, threshold),getState(bottom_right.z, threshold),getState(bottom_left.z, threshold))
-			cases.append(case)
 			match case:
 				1:
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				14:
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				
 				2:
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				13:
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				
 				3:
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
 				12:
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
 				
 				4:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
 				11:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
 				
 				5:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				10:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
-					lines.append(getPoint(top_right, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_right, bottom_right, threshold, interpolate))
 				
 				6:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				9:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(bottom_left, bottom_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(bottom_left, bottom_right, threshold, interpolate))
 				
 				7:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
 				8:
-					lines.append(getPoint(top_left, top_right, threshold, interpolate))
-					lines.append(getPoint(top_left, bottom_left, threshold, interpolate))
+					lines.append(getMidpoint(top_left, top_right, threshold, interpolate))
+					lines.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
 
-func generatePolygons(polygons : Array, cases : Array, field : Array, rows : int, cols : int, threshold : float = 0.5, interpolate : bool = true) -> void:
+func generatePolygons(polygons : Array, field : Array, rows : int, cols : int, threshold : float = 0.5, interpolate : bool = true) -> void:
 	for j in range(0, rows - 1):
 		for i in range(0, cols - 1):
 			var index : int = i + j * cols
@@ -267,7 +296,6 @@ func generatePolygons(polygons : Array, cases : Array, field : Array, rows : int
 			var bottom_left : Vector3 = field[index + cols]
 			
 			var case : int = getCase(getState(top_left.z, threshold),getState(top_right.z, threshold),getState(bottom_right.z, threshold),getState(bottom_left.z, threshold))
-			cases.append(case)
 			match case:
 				15:
 					var polygon : PoolVector2Array = [
@@ -279,38 +307,38 @@ func generatePolygons(polygons : Array, cases : Array, field : Array, rows : int
 					polygons.append(polygon)
 				1:
 					var polygon : PoolVector2Array = [
-						getPoint(top_left, bottom_left, threshold, interpolate),
-						getPoint(bottom_left, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, bottom_left, threshold, interpolate),
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate),
 						bottom_left
 					]
 					polygons.append(polygon)
 				14:
 					var polygon : PoolVector2Array = [
 						top_left, top_right, bottom_right,
-						getPoint(bottom_left, bottom_right, threshold, interpolate),
-						getPoint(top_left, bottom_left, threshold, interpolate)]
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, bottom_left, threshold, interpolate)]
 					polygons.append(polygon)
 				2:
 					var polygon : PoolVector2Array = [
-						getPoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
 						bottom_right,
-						getPoint(bottom_left, bottom_right, threshold, interpolate)
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				13:
 					var polygon : PoolVector2Array = [
 						top_left,
 						top_right,
-						getPoint(top_right, bottom_right, threshold, interpolate),
-						getPoint(bottom_left, bottom_right, threshold, interpolate),
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate),
 						bottom_left
 					]
 					polygons.append(polygon)
 				
 				3:
 					var polygon : PoolVector2Array = [
-						getPoint(top_left, bottom_left, threshold, interpolate),
-						getPoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, bottom_left, threshold, interpolate),
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
 						bottom_right,
 						bottom_left
 					]
@@ -319,23 +347,23 @@ func generatePolygons(polygons : Array, cases : Array, field : Array, rows : int
 					var polygon : PoolVector2Array = [
 						top_left,
 						top_right,
-						getPoint(top_right, bottom_right, threshold, interpolate),
-						getPoint(top_left, bottom_left, threshold, interpolate)
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, bottom_left, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				
 				4:
 					var polygon : PoolVector2Array = [
-						getPoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
 						top_right,
-						getPoint(top_right, bottom_right, threshold, interpolate)
+						getMidpoint(top_right, bottom_right, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				11:
 					var polygon : PoolVector2Array = [
 						top_left,
-						getPoint(top_left, top_right, threshold, interpolate),
-						getPoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
 						bottom_right,
 						bottom_left
 					]
@@ -343,70 +371,90 @@ func generatePolygons(polygons : Array, cases : Array, field : Array, rows : int
 				
 				5:
 					var polygon : PoolVector2Array = [
-						getPoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
 						top_right,
-						getPoint(top_right, bottom_right, threshold, interpolate),
-						getPoint(bottom_left, bottom_right, threshold, interpolate),
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate),
 						bottom_left,
-						getPoint(top_left, bottom_left, threshold, interpolate)
+						getMidpoint(top_left, bottom_left, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				10:
 					var polygon : PoolVector2Array = [
 						top_left,
-						getPoint(top_left, top_right, threshold, interpolate),
-						getPoint(top_right, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_right, bottom_right, threshold, interpolate),
 						bottom_right,
-						getPoint(bottom_left, bottom_right, threshold, interpolate),
-						getPoint(top_left, bottom_left, threshold, interpolate)
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, bottom_left, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				
 				6:
 					var polygon : PoolVector2Array = [
-						getPoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
 						top_right,
 						bottom_right,
-						getPoint(bottom_left, bottom_right, threshold, interpolate)
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				9:
 					var polygon : PoolVector2Array = [
 						top_left,
-						getPoint(top_left, top_right, threshold, interpolate),
-						getPoint(bottom_left, bottom_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(bottom_left, bottom_right, threshold, interpolate),
 						bottom_left
 					]
 					polygons.append(polygon)
 				
 				7:
 					var polygon : PoolVector2Array = [
-						getPoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_left, top_right, threshold, interpolate),
 						top_right,
 						bottom_right,
 						bottom_left,
-						getPoint(top_left, bottom_left, threshold, interpolate)
+						getMidpoint(top_left, bottom_left, threshold, interpolate)
 					]
 					polygons.append(polygon)
 				8:
 					var polygon : PoolVector2Array = [
 						top_left,
-						getPoint(top_left, top_right, threshold, interpolate),
-						getPoint(top_left, bottom_left, threshold, interpolate)
+						getMidpoint(top_left, top_right, threshold, interpolate),
+						getMidpoint(top_left, bottom_left, threshold, interpolate)
 					]
 					polygons.append(polygon)
 
+func generateCases(cases : Array, field : Array, rows : int, cols : int, threshold : float = 0.5, interpolate : bool = true) -> void:
+	for j in range(0, rows - 1):
+		for i in range(0, cols - 1):
+			var index : int = i + j * cols
+			
+			var top_left : Vector3 = field[index]
+			var top_right : Vector3 = field[index + 1]
+			var bottom_right : Vector3 = field[index + 1 + cols]
+			var bottom_left : Vector3 = field[index + cols]
+			
+			var case : int = getCase(getState(top_left.z, threshold),getState(top_right.z, threshold),getState(bottom_right.z, threshold),getState(bottom_left.z, threshold))
+			cases.append(case)
 
 
 
 
 func getDistanceFactor(i, j, rows, cols, max_dis_factor : float = 0.1) -> float:
-	var min_dis : float = min( min(rows - j, j), min(cols - i, i) )
-	var max_dis : float = ceil(max( max(cols, rows) * max_dis_factor, min_dis + 1) )
-	var f : float = min_dis / max_dis
-	return f
+	var min_v : float = min(rows - j, j)
+	var min_h : float = min(cols - i, i)
+	if min_v < min_h:
+		var max_dis : float = ceil( max(rows * 0.5 * max_dis_factor, min_v + 1) )
+		return min_v / max_dis
+	elif min_h < min_v:
+		var max_dis : float = ceil( max(cols * 0.5 * max_dis_factor, min_h + 1) )
+		return min_h / max_dis
+	else:
+#	var min_dis : float = min( min(rows - j, j), min(cols - i, i) )
+		var max_dis : float = ceil(max( max(cols, rows) * max_dis_factor * 0.5, min_h + 1) )
+		return min_h / max_dis
 
-func getPoint(p1 : Vector3, p2 : Vector3, threshold : float, interpolate : bool = true) -> Vector2:
+func getMidpoint(p1 : Vector3, p2 : Vector3, threshold : float, interpolate : bool = true) -> Vector2:
 	var t : float = 0.5
 	if interpolate:
 		t = getT(p1.z, p2.z, threshold)
