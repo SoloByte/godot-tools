@@ -3,7 +3,7 @@ extends Node2D
 const DEBUG_LINE_TEMPLATE : PackedScene = preload("res://marching-squares/DebugLine.tscn")
 const SIZE : Vector2 = Vector2(1500,900)
 const POS : Vector2 = Vector2(210, 100)
-const RES : int = 20
+const RES : int = 50
 const THRESHOLD : float = 0.3
 
 
@@ -16,21 +16,29 @@ var zoff : float = 0.0
 var draw_debug : bool = false
 
 
+
+#INFO
+#try to use zoff for calculating edge in the noise variant
+#is the zoff necessary? maybe just use vector2 for offset in the x,y direction -> can also be used in the non static variants
+#z is height so it could be used for the edges
+
+
+
 func _ready() -> void:
 	randomize()
 	generator = MarchingSquaresGenerator.new(POS, SIZE, RES, Vector2(1, 1), -1, 9.0, 10.0, 5.0)
 	
 #	map = generator.generateStaticLines(0.0, 0.4, true, 0.1)
-	map = generator.generateStaticLines(0.0, THRESHOLD, true, true, 0.1)
+	map = generator.generateStaticLines(0.0, THRESHOLD, true, true, Vector2(3, 0.25))
 	update()
 	
-	if map.has("lines") and map.lines.size() > 0:
-		spawnDebugLines(map.lines, RES / 8)
+#	if map.has("lines") and map.lines.size() > 0:
+#		spawnDebugLines(map.lines, RES / 8)
 
 #func _process(delta: float) -> void:
-#	map = generator.generateStaticLines(zoff, 0.4, true)
+#	map = generator.generateStaticLines(zoff, THRESHOLD, true, true, Vector2.ZERO)
 #	update()
-#	zoff += delta * 0.1
+#	zoff += delta * 0.01
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey:
@@ -66,13 +74,13 @@ func _draw() -> void:
 #				draw_string(default_font, pos, str(case))
 
 
-#	if map.has("polygons") and map.polygons.size() > 0:
-#		for poly in map.polygons:
-#			draw_colored_polygon(poly, Color(1.0, 1.0, 1.0, 0.25))
-#
-#	if map.has("lines") and map.lines.size() > 0:
-#		for i in range(0, map.lines.size(), 2):
-#			draw_line(map.lines[i], map.lines[i + 1], Color.white, RES / 8.0, true)
+	if map.has("polygons") and map.polygons.size() > 0:
+		for poly in map.polygons:
+			draw_colored_polygon(poly, Color(1.0, 1.0, 1.0, 0.25))
+
+	if map.has("lines") and map.lines.size() > 0:
+		for i in range(0, map.lines.size(), 2):
+			draw_line(map.lines[i], map.lines[i + 1], Color.white, RES / 8.0, true)
 	
 	
 	

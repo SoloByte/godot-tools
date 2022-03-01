@@ -123,14 +123,14 @@ func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1
 
 #figure out a better way to generate the cases
 
-func generateStaticCases(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.0) -> Dictionary:
+func generateStaticCases(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge := Vector2.ZERO) -> Dictionary:
 	var field : Array = []
 	var cases : Array = []
 	
 	if use_noise:
-		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+		generateFieldNoise(field, rows, cols, zoff, edge)
 	else:
-		generateFieldRNG(field, rows, cols, edge_factor)
+		generateFieldRNG(field, rows, cols, edge)
 	generateCases(cases, field, rows, cols, threshold, interpolate)
 	
 	return {
@@ -140,13 +140,13 @@ func generateStaticCases(zoff : float = 0.0, threshold : float = 0.5, interpolat
 		"bounds" : bounds
 	}
 
-func generateStaticLines(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.0) -> Dictionary:
+func generateStaticLines(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge := Vector2.ZERO) -> Dictionary:
 	var field : Array = []
 	var lines : Array = []
 	if use_noise:
-		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+		generateFieldNoise(field, rows, cols, zoff, edge)
 	else:
-		generateFieldRNG(field, rows, cols, edge_factor)
+		generateFieldRNG(field, rows, cols, edge)
 	generateLines(lines, field, rows, cols, threshold, interpolate)
 	
 	return {
@@ -156,13 +156,13 @@ func generateStaticLines(zoff : float = 0.0, threshold : float = 0.5, interpolat
 		"bounds" : bounds
 	}
 
-func generateStaticPolygons(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.1) -> Dictionary:
+func generateStaticPolygons(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge := Vector2.ZERO) -> Dictionary:
 	var field : Array = []
 	var polygons : Array = []
 	if use_noise:
-		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+		generateFieldNoise(field, rows, cols, zoff, edge)
 	else:
-		generateFieldRNG(field, rows, cols, edge_factor)
+		generateFieldRNG(field, rows, cols, edge)
 	generatePolygons(polygons, field, rows, cols, threshold, interpolate)
 	
 	return {
@@ -172,14 +172,14 @@ func generateStaticPolygons(zoff : float = 0.0, threshold : float = 0.5, interpo
 		"bounds" : bounds
 	}
 
-func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge_factor : float = 0.1) -> Dictionary:
+func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge := Vector2.ZERO) -> Dictionary:
 	var field : Array = []
 	var polygons : Array = []
 	var lines : Array = []
 	if use_noise:
-		generateFieldNoise(field, rows, cols, zoff, edge_factor)
+		generateFieldNoise(field, rows, cols, zoff, edge)
 	else:
-		generateFieldRNG(field, rows, cols, edge_factor)
+		generateFieldRNG(field, rows, cols, edge)
 	generatePolygons(polygons, field, rows, cols, threshold, interpolate)
 	generateLines(lines, field, rows, cols, threshold, interpolate)
 	
@@ -193,19 +193,17 @@ func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : b
 
 
 
-
-func generateFieldRNG(field : Array, rows : int, cols : int, edge : float = 0.1) -> void:
+func generateFieldRNG(field : Array, rows : int, cols : int, edge := Vector2.ZERO) -> void:
 	var start : Vector2 = bounds.position
 	
 	for j in range(0, rows):
 		for i in range(0, cols):
-			var value : float = rng.randf()
-			if edge > 0.0:
-				value *= getDistanceFactor(i, j, rows - 1, cols - 1, edge)
+			var value : float = rng.randf() * getEdgeFactor(i, j, cols - 1, rows - 1, edge)
+#			value *= getDistanceFactor(i, j, cols - 1, rows - 1, edge)
 			
 			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
 
-func generateFieldNoise(field : Array, rows : int, cols : int, zoff : float = 0.0, edge : float = 0.1) -> void:
+func generateFieldNoise(field : Array, rows : int, cols : int, zoff : float = 0.0, edge := Vector2.ZERO) -> void:
 	var noise_offset : Vector2 = noise_start_offset
 	var start : Vector2 = bounds.position
 	
@@ -214,8 +212,8 @@ func generateFieldNoise(field : Array, rows : int, cols : int, zoff : float = 0.
 		for i in range(0, cols):
 			var value : float = noise.get_noise_3d(noise_offset.x, noise_offset.y, zoff)
 			value = (value + 1.0) * 0.5
-			if edge > 0.0:
-				value *= getDistanceFactor(i, j, rows - 1, cols - 1, edge)
+			value *= getEdgeFactor(i, j, cols - 1, rows - 1, edge)
+#			value *= getDistanceFactor(i, j, cols - 1, rows - 1, edge)
 			
 			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
 			noise_offset.x += noise_increment.x
@@ -438,20 +436,31 @@ func generateCases(cases : Array, field : Array, rows : int, cols : int, thresho
 			cases.append(case)
 
 
+#edge.x is considered the edge depth
+#edge.y is considered the factor for multiplying
+func getEdgeFactor(i, j, cols, rows, edge := Vector2.ZERO) -> float:
+	if edge.x <= 0.0: return 1.0
+	var depth : int = min( min(i, cols - i), min(j, rows - j))
+	
+	if depth <= 0:
+		return 0.0
+	elif rng.randf() > depth as float / edge.x as float:
+		return edge.y
+	
+	return 1.0
 
-
-func getDistanceFactor(i, j, rows, cols, max_dis_factor : float = 0.1) -> float:
+func getDistanceFactor(i, j, cols, rows, f : float = 1.0) -> float:
 	var min_v : float = min(rows - j, j)
 	var min_h : float = min(cols - i, i)
 	if min_v < min_h:
-		var max_dis : float = ceil( max(rows * 0.5 * max_dis_factor, min_v + 1) )
+		var max_dis : float = ceil( max(rows * 0.5 * f, min_v + 1) )
 		return min_v / max_dis
 	elif min_h < min_v:
-		var max_dis : float = ceil( max(cols * 0.5 * max_dis_factor, min_h + 1) )
+		var max_dis : float = ceil( max(cols * 0.5 * f, min_h + 1) )
 		return min_h / max_dis
 	else:
 #	var min_dis : float = min( min(rows - j, j), min(cols - i, i) )
-		var max_dis : float = ceil(max( max(cols, rows) * max_dis_factor * 0.5, min_h + 1) )
+		var max_dis : float = ceil(max( max(cols, rows) * f * 0.5, min_h + 1) )
 		return min_h / max_dis
 
 func getMidpoint(p1 : Vector3, p2 : Vector3, threshold : float, interpolate : bool = true) -> Vector2:
