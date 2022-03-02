@@ -19,14 +19,16 @@ var noise : OpenSimplexNoise
 var rng : RandomNumberGenerator
 var noise_start_offset := Vector3.ZERO
 var noise_increment := Vector2(0.1,0.1)
-var bounds : Rect2
+var noise_offset_factor := Vector2.ZERO
+var origin := Vector2.ZERO
+var size := Vector2.ZERO
 var resolution : int = 0
 var cols : int = 0
 var rows : int = 0
 
 
 
-func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1), n_seed : int = -1, n_octaves : float = 4.0, n_period : float = 20.0, n_persistence : float = 0.8) -> void:
+func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1), n_seed : int = -1, n_octaves : float = 3.0, n_period : float = 15.0, n_persistence : float = 0.8) -> void:
 	rng = RandomNumberGenerator.new()
 	noise = OpenSimplexNoise.new()
 	if n_seed > -1:
@@ -39,8 +41,13 @@ func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1
 	noise.period = n_period
 	noise.persistence = n_persistence
 	noise_increment = n_increment
-	bounds = Rect2(pos, size)
+	origin  = pos
+	self.size = size
 	resolution = res
+	
+	noise_offset_factor.x = n_increment.x / resolution as float
+	noise_offset_factor.y = n_increment.y / resolution as float
+	
 	cols = size.x / res 
 	rows = size.y / res
 	cols += 1
@@ -48,8 +55,8 @@ func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1
 
 
 
-func generateStatic(offset := Vector3(0,0,0), threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}) -> Dictionary:
-	var map : Dictionary = {"res" : resolution, "bounds" : bounds, "rows" : rows, "cols" : cols}
+func generateStatic(threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, offset := Vector3(0,0,0), type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}) -> Dictionary:
+	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin, size), "rows" : rows, "cols" : cols}
 	
 	map["field"] = generateField(rows, cols, offset, use_noise, edge)
 	
@@ -66,24 +73,63 @@ func generateStatic(offset := Vector3(0,0,0), threshold : float = 0.5, interpola
 	
 	return map
 
+func generateTiled(x : int, y : int, zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, type : int = GENERATION_TYPE.LINES) -> Dictionary:
+	var r : int = rows + 1
+	var c : int = cols + 1
+	var offset := Vector2(x * size.x, y * size.y)
+	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin + offset, size), "rows" : r, "cols" : c, "x" : x, "y" : y, "offset" : offset}
+	map["field"] = generateFieldTiled(r, c, offset, zoff)
+	
+	match type:
+		GENERATION_TYPE.CASES:
+			map["cases"] = march(map.field, r, c, MARCH_TYPE.CASES, threshold, interpolate)
+		GENERATION_TYPE.LINES:
+			map["lines"] = march(map.field, r, c, MARCH_TYPE.LINES, threshold, interpolate)
+		GENERATION_TYPE.FILLED:
+			map["polygons"] = march(map.field, r, c, MARCH_TYPE.POLYGONS, threshold, interpolate)
+		GENERATION_TYPE.OUTLINE_FILLED:
+			map["lines"] = march(map.field, r, c, MARCH_TYPE.LINES, threshold, interpolate)
+			map["polygons"] = march(map.field, r, c, MARCH_TYPE.POLYGONS, threshold, interpolate)
+	
+	return map
+
+func generateFieldTiled(rows : int, cols : int, offset : Vector2, zoff : float = 0.0) -> Array:
+	var noise_offset : Vector3 = noise_start_offset + Vector3(offset.x * noise_offset_factor.x, offset.y * noise_offset_factor.y, zoff)
+	var field : Array = []
+	var start : Vector2 = origin + offset
+	
+	for j in range(0, rows):
+		noise_offset.y += noise_increment.y
+		
+		for i in range(0, cols):
+			var value : float = 0.0
+			value = noise.get_noise_3d(noise_offset.x, noise_offset.y, noise_offset.z)
+			value = (value + 1.0) * 0.5
+			
+			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
+			
+			noise_offset.x += noise_increment.x
+	
+	return field
 
 #edge : Dictionary = {"width" : 0.0, "factor" : 0.0, "threshold" : 0.0, "depth" : 0.0}
 func generateField(rows : int, cols : int, offset : Vector3, use_noise : bool = true, edge : Dictionary = {}) -> Array:
 	var noise_offset : Vector3 = noise_start_offset + offset
 	var field : Array = []
-	var start : Vector2 = bounds.position
+	var start : Vector2 = origin
 	
 	for j in range(0, rows):
 		if use_noise:
 			noise_offset.y += noise_increment.y
 		
 		for i in range(0, cols):
+#			var width : int = getMinDis(i, j, cols - 1, rows - 1)
 			var value : float = 0.0
 			if use_noise:
-				value = noise.get_noise_4d(noise_offset.x, noise_offset.y, noise_offset.z, 0)
+				value = noise.get_noise_3d(noise_offset.x, noise_offset.y, noise_offset.z)
 				value = (value + 1.0) * 0.5
 				if edge.size() >= 4 and edge.has("depth"):
-					edge["value"] = (noise.get_noise_4d(noise_offset.x, noise_offset.y, noise_offset.z, edge.depth) + 1.0) * 0.5
+					edge["value"] = (noise.get_noise_3d(noise_offset.x, noise_offset.y, noise_offset.z + edge.depth) + 1.0) * 0.5
 					value *= getEdgeFactor(i, j, cols - 1, rows - 1, edge)
 			else:
 				value = rng.randf()
@@ -299,21 +345,28 @@ func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.
 
 
 
-func getEdgeFactor(i, j, cols, rows, edge : Dictionary) -> float:
+func getMinDis(i : int, j : int, cols : int, rows : int) -> float:
+	return min( min(i, cols - i), min(j, rows - j))
+
+func getEdgeFactor(i : int, j : int, cols : int, rows : int, edge : Dictionary) -> float:
 	if not edge.has("width") or not edge.has("factor"): return 1.0
 	if edge.width <= 0.0: return 1.0
+	var width : int = getMinDis(i, j, cols, rows)
 	
-	var width : int = min( min(i, cols - i), min(j, rows - j))
+	
 	if width <= 0:
 		return 0.0
 	
 	if edge.has("value"):
+		if width > edge.width:
+			return 1.0
+		
 		if edge.value < edge.threshold:
 			return edge.factor
 		else:
 			return 1.0
 	else:
-		if rng.randf() > width as float / edge.width as float:
+		if rng.randf() > width / edge.width:
 			return edge.factor
 	
 	return 1.0
