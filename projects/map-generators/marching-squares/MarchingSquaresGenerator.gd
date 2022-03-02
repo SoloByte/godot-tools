@@ -27,7 +27,11 @@ var cols : int = 0
 var rows : int = 0
 
 
+#add metaballs generate function (just uses rng and circles for field generation) -> has 1 global threshold
 
+#remove size and pos -> is used in generate functions instead
+#test if removing the increment and using the res as increment works better
+#add origin
 func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1), n_seed : int = -1, n_octaves : float = 3.0, n_period : float = 15.0, n_persistence : float = 0.8) -> void:
 	rng = RandomNumberGenerator.new()
 	noise = OpenSimplexNoise.new()
@@ -321,7 +325,9 @@ func generateIsoCircles(amount_range : Vector2, radius_range : Vector2, threshol
 		var y : float = rng.randf_range(0, size.y) + origin.y
 		var r : float = rng.randf_range(radius_range.x, radius_range.y)
 		var v : float = rng.randf_range(threshold_range.x, threshold_range.y)
-		circles.append({"x" : x, "y" : y, "radius" : r, "value" : v})
+#		var angle : float = rng.randf() * PI * 2.0
+#		var length : float = rng.randf_range(5, 25)
+		circles.append({"x" : x, "y" : y, "radius" : r, "value" : v})#, "vel" : Vector2.RIGHT.rotated(angle) * length})
 	return circles
 
 func getStateIsocircles(pos : Vector2, circls : Array, value : float, threshold : float) -> int:

@@ -10,10 +10,11 @@ const THRESHOLD : float = 0.45
 var generator : MarchingSquaresGenerator
 
 var map : Dictionary = {}
+var iso_circles : Array = []
 var zoff : float = 0.0
 
 
-var maps : Array = []
+#var maps : Array = []
 
 var draw_debug : bool = false
 
@@ -30,7 +31,7 @@ func _ready() -> void:
 	randomize()
 	generator = MarchingSquaresGenerator.new(POS, SIZE, RES, Vector2(4, 4), -1, 3.0, 15.0, 0.8)
 	
-	var iso_circles : Array = generator.generateIsoCircles(Vector2(2, 6), Vector2(50, 300), Vector2(0.5, 0.75))
+	iso_circles = generator.generateIsoCircles(Vector2(2, 6), Vector2(50, 300), Vector2(0.5, 0.75))
 	map = generator.generateStatic(
 		THRESHOLD, 
 		true, 
@@ -49,15 +50,23 @@ func _ready() -> void:
 #		spawnDebugLines(map.lines, RES / 8)
 
 #func _process(delta: float) -> void:
+#	for c in iso_circles:
+#		c.x += c.vel.x * delta
+#		c.y += c.vel.y * delta
+#		if c.x - c.radius < 0 or c.x + c.radius > POS.x + SIZE.x:
+#			c.vel.x *= -1
+#		if c.y - c.radius < 0 or c.y + c.radius > POS.y + SIZE.y:
+#			c.vel.y *= -1
+#
 #	map = generator.generateStatic(
 #		THRESHOLD, 
 #		true, 
 #		true, 
-#		Vector3(0,0,zoff), 
+#		Vector3.ZERO, 
 #		MarchingSquaresGenerator.GENERATION_TYPE.LINES, 
-#		{"width" : 5, "factor" : 0.5, "threshold" : 0.4, "depth" : 0.1}
+#		{"width" : 5, "factor" : 0.25, "threshold" : 0.3, "depth" : 0.1},
+#		iso_circles
 #	)
-#
 #	update() 
 #	zoff += delta
 
