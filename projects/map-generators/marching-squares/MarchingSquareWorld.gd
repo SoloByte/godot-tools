@@ -29,8 +29,8 @@ func _ready() -> void:
 	generator = MarchingSquaresGenerator.new(POS, SIZE, RES, Vector2(1, 1), -1, 9.0, 10.0, 5.0)
 	
 #	map = generator.generateStaticLines(0.0, 0.4, true, 0.1)
-	map = generator.generateStaticLines(0.0, THRESHOLD, true, true, Vector2(3, 0.25))
-	update()
+	map = generator.generateStatic(Vector3.ZERO, THRESHOLD, true, true, MarchingSquaresGenerator.GENERATION_TYPE.LINES, {"width" : 5, "factor" : 0.25, "threshold" : 0.65, "depth" : 0.01})
+	update() 
 	
 #	if map.has("lines") and map.lines.size() > 0:
 #		spawnDebugLines(map.lines, RES / 8)
@@ -62,7 +62,7 @@ func _draw() -> void:
 		if map.field.size() > 0:
 			for point in map.field:
 				var pos := Vector2(point.x, point.y)
-				var color := Color.white
+				var color := Color.red
 				if point.z >= THRESHOLD:
 					color = Color.green
 				draw_circle(pos, RES / 8, color)

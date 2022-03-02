@@ -14,15 +14,10 @@ enum MARCH_TYPE {
 	POLYGONS = 2
 }
 
-enum RANDOM_TYPE {
-	NOISE = 0,
-	RNG = 1
-}
-
 
 var noise : OpenSimplexNoise
 var rng : RandomNumberGenerator
-var noise_start_offset := Vector2.ZERO
+var noise_start_offset := Vector3.ZERO
 var noise_increment := Vector2(0.1,0.1)
 var bounds : Rect2
 var resolution : int = 0
@@ -53,13 +48,10 @@ func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1
 
 
 
-func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, edge := Vector2.ZERO, type : int = GENERATION_TYPE.LINES) -> Dictionary:
+func generateStatic(offset := Vector3(0,0,0), threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}) -> Dictionary:
 	var map : Dictionary = {"res" : resolution, "bounds" : bounds, "rows" : rows, "cols" : cols}
 	
-	if use_noise:
-		map["field"] = generateFieldNoise(rows, cols, zoff, edge)
-	else:
-		map["field"] = generateFieldRNG(rows, cols, edge)
+	map["field"] = generateField(rows, cols, offset, use_noise, edge)
 	
 	match type:
 		GENERATION_TYPE.CASES:
@@ -75,34 +67,34 @@ func generateStatic(zoff : float = 0.0, threshold : float = 0.5, interpolate : b
 	return map
 
 
-
-func generateFieldRNG(rows : int, cols : int, edge := Vector2.ZERO) -> Array:
+#edge : Dictionary = {"width" : 0.0, "factor" : 0.0, "threshold" : 0.0, "depth" : 0.0}
+func generateField(rows : int, cols : int, offset : Vector3, use_noise : bool = true, edge : Dictionary = {}) -> Array:
+	var noise_offset : Vector3 = noise_start_offset + offset
 	var field : Array = []
 	var start : Vector2 = bounds.position
 	
 	for j in range(0, rows):
+		if use_noise:
+			noise_offset.y += noise_increment.y
+		
 		for i in range(0, cols):
-			var value : float = rng.randf() * getEdgeFactor(i, j, cols - 1, rows - 1, edge)
-#			value *= getDistanceFactor(i, j, cols - 1, rows - 1, edge)
+			var value : float = 0.0
+			if use_noise:
+				value = noise.get_noise_4d(noise_offset.x, noise_offset.y, noise_offset.z, 0)
+				value = (value + 1.0) * 0.5
+				if edge.size() >= 4 and edge.has("depth"):
+					edge["value"] = (noise.get_noise_4d(noise_offset.x, noise_offset.y, noise_offset.z, edge.depth) + 1.0) * 0.5
+					value *= getEdgeFactor(i, j, cols - 1, rows - 1, edge)
+			else:
+				value = rng.randf()
+				if edge.size() >= 2:
+					value *= getEdgeFactor(i, j, cols - 1, rows - 1, edge)
 			
 			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
-	return field
-
-func generateFieldNoise(rows : int, cols : int, zoff : float = 0.0, edge := Vector2.ZERO) -> Array:
-	var noise_offset : Vector2 = noise_start_offset
-	var start : Vector2 = bounds.position
-	var field : Array = []
+			
+			if use_noise:
+				noise_offset.x += noise_increment.x
 	
-	for j in range(0, rows):
-		noise_offset.y += noise_increment.y
-		for i in range(0, cols):
-			var value : float = noise.get_noise_3d(noise_offset.x, noise_offset.y, zoff)
-			value = (value + 1.0) * 0.5
-			value *= getEdgeFactor(i, j, cols - 1, rows - 1, edge)
-#			value *= getDistanceFactor(i, j, cols - 1, rows - 1, edge)
-			
-			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
-			noise_offset.x += noise_increment.x
 	return field
 
 func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.LINES, threshold : float = 0.5, interpolate : bool = true) -> Array:
@@ -117,9 +109,9 @@ func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.
 			var bottom_left : Vector3 = field[index + cols]
 			
 			var case : int = getCase(getState(top_left.z, threshold),getState(top_right.z, threshold),getState(bottom_right.z, threshold),getState(bottom_left.z, threshold))
-			if MARCH_TYPE == MARCH_TYPE.CASES:
+			if march_type == MARCH_TYPE.CASES:
 				generated.append(case)
-			elif MARCH_TYPE == MARCH_TYPE.LINES:
+			elif march_type == MARCH_TYPE.LINES:
 				match case:
 					1:
 						generated.append(getMidpoint(top_left, bottom_left, threshold, interpolate))
@@ -305,16 +297,24 @@ func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.
 	return generated
 
 
-#edge.x is considered the edge depth
-#edge.y is considered the factor for multiplying
-func getEdgeFactor(i, j, cols, rows, edge := Vector2.ZERO) -> float:
-	if edge.x <= 0.0: return 1.0
-	var depth : int = min( min(i, cols - i), min(j, rows - j))
+
+
+func getEdgeFactor(i, j, cols, rows, edge : Dictionary) -> float:
+	if not edge.has("width") or not edge.has("factor"): return 1.0
+	if edge.width <= 0.0: return 1.0
 	
-	if depth <= 0:
+	var width : int = min( min(i, cols - i), min(j, rows - j))
+	if width <= 0:
 		return 0.0
-	elif rng.randf() > depth as float / edge.x as float:
-		return edge.y
+	
+	if edge.has("value"):
+		if edge.value < edge.threshold:
+			return edge.factor
+		else:
+			return 1.0
+	else:
+		if rng.randf() > width as float / edge.width as float:
+			return edge.factor
 	
 	return 1.0
 
