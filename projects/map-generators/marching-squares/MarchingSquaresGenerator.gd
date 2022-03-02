@@ -55,10 +55,10 @@ func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1
 
 
 
-func generateStatic(threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, offset := Vector3(0,0,0), type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}) -> Dictionary:
-	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin, size), "rows" : rows, "cols" : cols}
+func generateStatic(threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, offset := Vector3(0,0,0), type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}, iso_circles : Array = []) -> Dictionary:
+	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin, size), "rows" : rows, "cols" : cols, "iso_circles" : iso_circles}
 	
-	map["field"] = generateField(rows, cols, offset, use_noise, edge)
+	map["field"] = generateField(rows, cols, offset, threshold, use_noise, edge, iso_circles)
 	
 	match type:
 		GENERATION_TYPE.CASES:
@@ -73,47 +73,8 @@ func generateStatic(threshold : float = 0.5, interpolate : bool = true, use_nois
 	
 	return map
 
-func generateTiled(x : int, y : int, zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, type : int = GENERATION_TYPE.LINES) -> Dictionary:
-	var r : int = rows + 1
-	var c : int = cols + 1
-	var offset := Vector2(x * size.x, y * size.y)
-	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin + offset, size), "rows" : r, "cols" : c, "x" : x, "y" : y, "offset" : offset}
-	map["field"] = generateFieldTiled(r, c, offset, zoff)
-	
-	match type:
-		GENERATION_TYPE.CASES:
-			map["cases"] = march(map.field, r, c, MARCH_TYPE.CASES, threshold, interpolate)
-		GENERATION_TYPE.LINES:
-			map["lines"] = march(map.field, r, c, MARCH_TYPE.LINES, threshold, interpolate)
-		GENERATION_TYPE.FILLED:
-			map["polygons"] = march(map.field, r, c, MARCH_TYPE.POLYGONS, threshold, interpolate)
-		GENERATION_TYPE.OUTLINE_FILLED:
-			map["lines"] = march(map.field, r, c, MARCH_TYPE.LINES, threshold, interpolate)
-			map["polygons"] = march(map.field, r, c, MARCH_TYPE.POLYGONS, threshold, interpolate)
-	
-	return map
-
-func generateFieldTiled(rows : int, cols : int, offset : Vector2, zoff : float = 0.0) -> Array:
-	var noise_offset : Vector3 = noise_start_offset + Vector3(offset.x * noise_offset_factor.x, offset.y * noise_offset_factor.y, zoff)
-	var field : Array = []
-	var start : Vector2 = origin + offset
-	
-	for j in range(0, rows):
-		noise_offset.y += noise_increment.y
-		
-		for i in range(0, cols):
-			var value : float = 0.0
-			value = noise.get_noise_3d(noise_offset.x, noise_offset.y, noise_offset.z)
-			value = (value + 1.0) * 0.5
-			
-			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
-			
-			noise_offset.x += noise_increment.x
-	
-	return field
-
 #edge : Dictionary = {"width" : 0.0, "factor" : 0.0, "threshold" : 0.0, "depth" : 0.0}
-func generateField(rows : int, cols : int, offset : Vector3, use_noise : bool = true, edge : Dictionary = {}) -> Array:
+func generateField(rows : int, cols : int, offset : Vector3, threshold : float = 0.5, use_noise : bool = true, edge : Dictionary = {}, iso_circles : Array = []) -> Array:
 	var noise_offset : Vector3 = noise_start_offset + offset
 	var field : Array = []
 	var start : Vector2 = origin
@@ -136,7 +97,14 @@ func generateField(rows : int, cols : int, offset : Vector3, use_noise : bool = 
 				if edge.size() >= 2:
 					value *= getEdgeFactor(i, j, cols - 1, rows - 1, edge)
 			
-			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
+			var pos := Vector2(start.x + i * resolution, start.y + j * resolution)
+			var state : int = 0
+			if iso_circles.size() <= 0:
+				state = getState(value, threshold)
+			else:
+				state = getStateIsocircles(pos, iso_circles, value, threshold)
+			
+			field.append(Quat(pos.x, pos.y, value, state))
 			
 			if use_noise:
 				noise_offset.x += noise_increment.x
@@ -149,12 +117,12 @@ func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.
 		for i in range(0, cols - 1):
 			var index : int = i + j * cols
 			
-			var top_left : Vector3 = field[index]
-			var top_right : Vector3 = field[index + 1]
-			var bottom_right : Vector3 = field[index + 1 + cols]
-			var bottom_left : Vector3 = field[index + cols]
+			var top_left : Quat = field[index]
+			var top_right : Quat = field[index + 1]
+			var bottom_right : Quat = field[index + 1 + cols]
+			var bottom_left : Quat = field[index + cols]
 			
-			var case : int = getCase(getState(top_left.z, threshold),getState(top_right.z, threshold),getState(bottom_right.z, threshold),getState(bottom_left.z, threshold))
+			var case : int = getCase(top_left.w, top_right.w, bottom_right.w, bottom_left.w)
 			if march_type == MARCH_TYPE.CASES:
 				generated.append(case)
 			elif march_type == MARCH_TYPE.LINES:
@@ -345,6 +313,34 @@ func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.
 
 
 
+func generateIsoCircles(amount_range : Vector2, radius_range : Vector2, threshold_range : Vector2) -> Array:
+	var amount : int = rng.randi_range(amount_range.x, amount_range.y)
+	var circles : Array = []
+	for i in range(amount):
+		var x : float = rng.randf_range(0, size.x) + origin.x
+		var y : float = rng.randf_range(0, size.y) + origin.y
+		var r : float = rng.randf_range(radius_range.x, radius_range.y)
+		var v : float = rng.randf_range(threshold_range.x, threshold_range.y)
+		circles.append({"x" : x, "y" : y, "radius" : r, "value" : v})
+	return circles
+
+func getStateIsocircles(pos : Vector2, circls : Array, value : float, threshold : float) -> int:
+	var sum : float = 0
+	var inside : float = 0
+	for c in circls:
+		var dis_sq : float = (pos - Vector2(c.x, c.y)).length_squared()
+		if dis_sq <= c.radius * c.radius:
+			inside += 1
+			sum += c.value
+	
+	if inside <= 0:
+		return getState(value, threshold)
+	else:
+		if value > sum / inside:
+			return 1
+	
+	return 0
+
 func getMinDis(i : int, j : int, cols : int, rows : int) -> float:
 	return min( min(i, cols - i), min(j, rows - j))
 
@@ -371,7 +367,7 @@ func getEdgeFactor(i : int, j : int, cols : int, rows : int, edge : Dictionary) 
 	
 	return 1.0
 
-func getDistanceFactor(i, j, cols, rows, f : float = 1.0) -> float:
+func getDistanceFactor(i : int, j : int, cols : int, rows : int, f : float = 1.0) -> float:
 	var min_v : float = min(rows - j, j)
 	var min_h : float = min(cols - i, i)
 	if min_v < min_h:
@@ -385,7 +381,7 @@ func getDistanceFactor(i, j, cols, rows, f : float = 1.0) -> float:
 		var max_dis : float = ceil(max( max(cols, rows) * f * 0.5, min_h + 1) )
 		return min_h / max_dis
 
-func getMidpoint(p1 : Vector3, p2 : Vector3, threshold : float, interpolate : bool = true) -> Vector2:
+func getMidpoint(p1 : Quat, p2 : Quat, threshold : float, interpolate : bool = true) -> Vector2:
 	var t : float = 0.5
 	if interpolate:
 		t = getT(p1.z, p2.z, threshold)
@@ -406,3 +402,65 @@ func getState(value, threshold) -> int:
 func getCase(a : int, b : int, c : int, d : int) -> int:
 	return a * 8 + b * 4 + c * 2 + d * 1
 
+
+
+
+
+
+
+class FieldPoint:
+	var x : float = 0.0
+	var y : float = 0.0
+	var v : float = 0.0
+	var state : int = 0
+	
+	func _init(x : float, y : float, value : float, state : int) -> void:
+		self.x = x
+		self.y = y
+		self.v = value
+		self.state = state
+
+
+
+
+
+
+
+#func generateTiled(x : int, y : int, zoff : float = 0.0, threshold : float = 0.5, interpolate : bool = true, type : int = GENERATION_TYPE.LINES) -> Dictionary:
+#	var r : int = rows + 1
+#	var c : int = cols + 1
+#	var offset := Vector2(x * size.x, y * size.y)
+#	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin + offset, size), "rows" : r, "cols" : c, "x" : x, "y" : y, "offset" : offset}
+#	map["field"] = generateFieldTiled(r, c, offset, zoff)
+#
+#	match type:
+#		GENERATION_TYPE.CASES:
+#			map["cases"] = march(map.field, r, c, MARCH_TYPE.CASES, threshold, interpolate)
+#		GENERATION_TYPE.LINES:
+#			map["lines"] = march(map.field, r, c, MARCH_TYPE.LINES, threshold, interpolate)
+#		GENERATION_TYPE.FILLED:
+#			map["polygons"] = march(map.field, r, c, MARCH_TYPE.POLYGONS, threshold, interpolate)
+#		GENERATION_TYPE.OUTLINE_FILLED:
+#			map["lines"] = march(map.field, r, c, MARCH_TYPE.LINES, threshold, interpolate)
+#			map["polygons"] = march(map.field, r, c, MARCH_TYPE.POLYGONS, threshold, interpolate)
+#
+#	return map
+#
+#func generateFieldTiled(rows : int, cols : int, offset : Vector2, zoff : float = 0.0) -> Array:
+#	var noise_offset : Vector3 = noise_start_offset + Vector3(offset.x * noise_offset_factor.x, offset.y * noise_offset_factor.y, zoff)
+#	var field : Array = []
+#	var start : Vector2 = origin + offset
+#
+#	for j in range(0, rows):
+#		noise_offset.y += noise_increment.y
+#
+#		for i in range(0, cols):
+#			var value : float = 0.0
+#			value = noise.get_noise_3d(noise_offset.x, noise_offset.y, noise_offset.z)
+#			value = (value + 1.0) * 0.5
+#
+#			field.append(Vector3(start.x, start.y, 0.0) + Vector3(i * resolution, j * resolution, value))
+#
+#			noise_offset.x += noise_increment.x
+#
+#	return field

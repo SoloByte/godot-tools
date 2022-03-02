@@ -1,10 +1,10 @@
 extends Node2D
 
 const DEBUG_LINE_TEMPLATE : PackedScene = preload("res://marching-squares/DebugLine.tscn")
-const SIZE : Vector2 = Vector2(600,400)
+const SIZE : Vector2 = Vector2(1500,900)
 const POS : Vector2 = Vector2(210, 100)
-const RES : int = 100
-const THRESHOLD : float = 0.6
+const RES : int = 25
+const THRESHOLD : float = 0.45
 
 
 var generator : MarchingSquaresGenerator
@@ -30,24 +30,18 @@ func _ready() -> void:
 	randomize()
 	generator = MarchingSquaresGenerator.new(POS, SIZE, RES, Vector2(4, 4), -1, 3.0, 15.0, 0.8)
 	
-#	map = generator.generateStatic(
-#		THRESHOLD, 
-#		true, 
-#		true, 
-#		Vector3.ZERO, 
-#		MarchingSquaresGenerator.GENERATION_TYPE.LINES, 
-#		{"width" : 5, "factor" : 0.25, "threshold" : 0.3, "depth" : 0.1}
-#	)
+	var iso_circles : Array = generator.generateIsoCircles(Vector2(2, 6), Vector2(50, 300), Vector2(0.5, 0.75))
+	map = generator.generateStatic(
+		THRESHOLD, 
+		true, 
+		true, 
+		Vector3.ZERO, 
+		MarchingSquaresGenerator.GENERATION_TYPE.LINES, 
+		{"width" : 5, "factor" : 0.25, "threshold" : 0.3, "depth" : 0.1},
+		iso_circles
+	)
 	
-	for y in range(2):
-		for x in range(2):
-			var m : Dictionary = generator.generateTiled(
-				x, y, 0.0,
-				THRESHOLD, 
-				true, 
-				MarchingSquaresGenerator.GENERATION_TYPE.LINES
-			)
-			maps.append(m)
+
 	
 	update() 
 	
@@ -84,24 +78,24 @@ func spawnDebugLines(lines : Array, w : float = 1.0, color := Color.white) -> vo
 func _draw() -> void:
 #	draw_rect(Rect2(POS - Vector2(RES,RES), SIZE + Vector2(RES,RES) * 2), Color.white, false, RES/ 4.0, true)
 	
-	if maps and maps.size() > 0:
-		for m in maps:
-			if draw_debug:
-				draw_rect(m.bounds, Color(1, 1, 1, 0.5), false, RES/ 8.0, true)
-				if m.field.size() > 0:
-					for point in m.field:
-						var pos := Vector2(point.x, point.y)
-						var color := Color(1,0,0,0.2)
-						if point.z >= THRESHOLD:
-							color = Color(0,1,0,0.2)
-						draw_circle(pos, RES / 8, color)
-			if m.has("polygons") and m.polygons.size() > 0:
-				for poly in m.polygons:
-					draw_colored_polygon(poly, Color(1.0, 1.0, 1.0, 0.25))
-
-			if m.has("lines") and m.lines.size() > 0:
-				for i in range(0, m.lines.size(), 2):
-					draw_line(m.lines[i], m.lines[i + 1], Color.white, RES / 8.0, true)
+#	if maps and maps.size() > 0:
+#		for m in maps:
+#			if draw_debug:
+#				draw_rect(m.bounds, Color(1, 1, 1, 0.5), false, RES/ 8.0, true)
+#				if m.field.size() > 0:
+#					for point in m.field:
+#						var pos := Vector2(point.x, point.y)
+#						var color := Color(1,0,0,0.2)
+#						if point.z >= THRESHOLD:
+#							color = Color(0,1,0,0.2)
+#						draw_circle(pos, RES / 8, color)
+#			if m.has("polygons") and m.polygons.size() > 0:
+#				for poly in m.polygons:
+#					draw_colored_polygon(poly, Color(1.0, 1.0, 1.0, 0.25))
+#
+#			if m.has("lines") and m.lines.size() > 0:
+#				for i in range(0, m.lines.size(), 2):
+#					draw_line(m.lines[i], m.lines[i + 1], Color.white, RES / 8.0, true)
 		
 	if map:
 		if draw_debug:
@@ -109,9 +103,13 @@ func _draw() -> void:
 				for point in map.field:
 					var pos := Vector2(point.x, point.y)
 					var color := Color.red
-					if point.z >= THRESHOLD:
+					if point.w >= 1.0:
 						color = Color.green
 					draw_circle(pos, RES / 8, color)
+			
+			if map.iso_circles.size() > 0:
+				for circle in map.iso_circles:
+					draw_circle(Vector2(circle.x, circle.y), circle.radius, Color(0,0,1,0.5))
 	#		if map.cases.size() > 0:
 	#			for i in range(map.cases.size()):
 	#				var case = map.cases[i]
@@ -132,3 +130,12 @@ func _draw() -> void:
 	
 
 
+#	for y in range(2):
+#		for x in range(2):
+#			var m : Dictionary = generator.generateTiled(
+#				x, y, 0.0,
+#				THRESHOLD, 
+#				true, 
+#				MarchingSquaresGenerator.GENERATION_TYPE.LINES
+#			)
+#			maps.append(m)
