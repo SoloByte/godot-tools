@@ -29,13 +29,14 @@ var draw_debug : bool = false
 
 func _ready() -> void:
 	randomize()
-	generator = MarchingSquaresGenerator.new(POS, SIZE, RES, Vector2(4, 4), -1, 3.0, 15.0, 0.8)
+	generator = MarchingSquaresGenerator.new(Vector2.ZERO, RES, -1, true, true, 3.0, 15.0, 0.8)
 	
-	iso_circles = generator.generateIsoCircles(Vector2(2, 6), Vector2(50, 300), Vector2(0.5, 0.75))
+	iso_circles = generator.generateIsoCircles(Rect2(POS, SIZE), Vector2(2, 6), Vector2(50, 300), Vector2(0.5, 0.75))
+	iso_circles = []
 	map = generator.generateStatic(
+		POS,
+		SIZE,
 		THRESHOLD, 
-		true, 
-		true, 
 		Vector3.ZERO, 
 		MarchingSquaresGenerator.GENERATION_TYPE.LINES, 
 		{"width" : 5, "factor" : 0.25, "threshold" : 0.3, "depth" : 0.1},
@@ -112,7 +113,7 @@ func _draw() -> void:
 				for point in map.field:
 					var pos := Vector2(point.x, point.y)
 					var color := Color.red
-					if point.w >= 1.0:
+					if point.state >= 1.0:
 						color = Color.green
 					draw_circle(pos, RES / 8, color)
 			

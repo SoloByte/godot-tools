@@ -15,16 +15,22 @@ enum MARCH_TYPE {
 }
 
 
-var noise : OpenSimplexNoise
 var rng : RandomNumberGenerator
-var noise_start_offset := Vector3.ZERO
-var noise_increment := Vector2(0.1,0.1)
-var noise_offset_factor := Vector2.ZERO
+var noise : OpenSimplexNoise = null
+var noise_origin := Vector3.ZERO
 var origin := Vector2.ZERO
-var size := Vector2.ZERO
 var resolution : int = 0
-var cols : int = 0
-var rows : int = 0
+var use_interpolation : bool = true
+#var cols : int = 0
+#var rows : int = 0
+#var noise_increment := Vector2(0.1,0.1)
+#var size := Vector2.ZERO
+
+
+func hasNoise() -> bool:
+	return noise != null
+
+
 
 
 #add metaballs generate function (just uses rng and circles for field generation) -> has 1 global threshold
@@ -32,60 +38,70 @@ var rows : int = 0
 #remove size and pos -> is used in generate functions instead
 #test if removing the increment and using the res as increment works better
 #add origin
-func _init(pos : Vector2, size : Vector2, res : int, n_increment := Vector2(1, 1), n_seed : int = -1, n_octaves : float = 3.0, n_period : float = 15.0, n_persistence : float = 0.8) -> void:
+func _init(origin : Vector2, res : int, n_seed : int = -1, interpolate : bool = true, use_noise : bool = true, n_octaves : float = 3.0, n_period : float = 15.0, n_persistence : float = 0.8) -> void:
 	rng = RandomNumberGenerator.new()
-	noise = OpenSimplexNoise.new()
 	if n_seed > -1:
-		noise.seed = n_seed
 		rng.seed = n_seed
 	else:
-		noise.seed = randi()
 		rng.randomize()
-	noise.octaves = min(n_octaves, 9.0)
-	noise.period = n_period
-	noise.persistence = n_persistence
-	noise_increment = n_increment
-	origin  = pos
-	self.size = size
+	
+	
+	if use_noise:
+		noise = OpenSimplexNoise.new()
+	
+		if n_seed > -1:
+			noise.seed = n_seed
+		else:
+			noise.seed = randi()
+		
+		noise.octaves = min(n_octaves, 9.0)
+		noise.period = n_period
+		noise.persistence = n_persistence
+	
 	resolution = res
+	self.origin = origin
+	self.use_interpolation = interpolate
+	self.noise_origin = Vector3(origin.x, origin.y, 0)
+#	noise_offset_factor.x = n_increment.x / resolution as float
+#	noise_offset_factor.y = n_increment.y / resolution as float
 	
-	noise_offset_factor.x = n_increment.x / resolution as float
-	noise_offset_factor.y = n_increment.y / resolution as float
-	
-	cols = size.x / res 
-	rows = size.y / res
-	cols += 1
-	rows += 1
+#	cols = size.x / res 
+#	rows = size.y / res
+#	cols += 1
+#	rows += 1
 
 
 
-func generateStatic(threshold : float = 0.5, interpolate : bool = true, use_noise : bool = true, offset := Vector3(0,0,0), type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}, iso_circles : Array = []) -> Dictionary:
-	var map : Dictionary = {"res" : resolution, "bounds" : Rect2(origin, size), "rows" : rows, "cols" : cols, "iso_circles" : iso_circles}
+func generateStatic(pos : Vector2, size : Vector2, threshold : float = 0.5, n_offset := Vector3(0,0,0), type : int = GENERATION_TYPE.LINES, edge : Dictionary = {}, iso_circles : Array = []) -> Dictionary:
+	var bounds := Rect2(origin + pos, size)
+	var map : Dictionary = {"res" : resolution, "bounds" : bounds, "rows" : getRows(size.y), "cols" : getCols(size.x), "iso_circles" : iso_circles}
 	
-	map["field"] = generateField(rows, cols, offset, threshold, use_noise, edge, iso_circles)
+	map["field"] = generateField(bounds, n_offset, threshold, hasNoise(), edge, iso_circles)
 	
 	match type:
 		GENERATION_TYPE.CASES:
-			map["cases"] = march(map.field, rows, cols, MARCH_TYPE.CASES, threshold, interpolate)
+			map["cases"] = march(map.field, bounds, MARCH_TYPE.CASES, threshold, use_interpolation)
 		GENERATION_TYPE.LINES:
-			map["lines"] = march(map.field, rows, cols, MARCH_TYPE.LINES, threshold, interpolate)
+			map["lines"] = march(map.field, bounds, MARCH_TYPE.LINES, threshold, use_interpolation)
 		GENERATION_TYPE.FILLED:
-			map["polygons"] = march(map.field, rows, cols, MARCH_TYPE.POLYGONS, threshold, interpolate)
+			map["polygons"] = march(map.field, bounds, MARCH_TYPE.POLYGONS, threshold, use_interpolation)
 		GENERATION_TYPE.OUTLINE_FILLED:
-			map["lines"] = march(map.field, rows, cols, MARCH_TYPE.LINES, threshold, interpolate)
-			map["polygons"] = march(map.field, rows, cols, MARCH_TYPE.POLYGONS, threshold, interpolate)
+			map["lines"] = march(map.field, bounds, MARCH_TYPE.LINES, threshold, use_interpolation)
+			map["polygons"] = march(map.field, bounds, MARCH_TYPE.POLYGONS, threshold, use_interpolation)
 	
 	return map
 
 #edge : Dictionary = {"width" : 0.0, "factor" : 0.0, "threshold" : 0.0, "depth" : 0.0}
-func generateField(rows : int, cols : int, offset : Vector3, threshold : float = 0.5, use_noise : bool = true, edge : Dictionary = {}, iso_circles : Array = []) -> Array:
-	var noise_offset : Vector3 = noise_start_offset + offset
+func generateField(bounds : Rect2, n_offset : Vector3, threshold : float = 0.5, use_noise : bool = true, edge : Dictionary = {}, iso_circles : Array = []) -> Array:
+	var rows : int = getRows(bounds.size.y)
+	var cols : int = getCols(bounds.size.x)
+	var noise_offset : Vector3 = noise_origin + n_offset
+	var start : Vector2 = bounds.position
 	var field : Array = []
-	var start : Vector2 = origin
 	
 	for j in range(0, rows):
 		if use_noise:
-			noise_offset.y += noise_increment.y
+			noise_offset.y += resolution
 		
 		for i in range(0, cols):
 #			var width : int = getMinDis(i, j, cols - 1, rows - 1)
@@ -108,25 +124,27 @@ func generateField(rows : int, cols : int, offset : Vector3, threshold : float =
 			else:
 				state = getStateIsocircles(pos, iso_circles, value, threshold)
 			
-			field.append(Quat(pos.x, pos.y, value, state))
-			
+#			field.append(Quat(pos.x, pos.y, value, state))
+			field.append(FieldPoint.new(pos.x, pos.y, value, state))
 			if use_noise:
-				noise_offset.x += noise_increment.x
+				noise_offset.x += resolution
 	
 	return field
 
-func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.LINES, threshold : float = 0.5, interpolate : bool = true) -> Array:
+func march(field : Array, bounds : Rect2, march_type : int = MARCH_TYPE.LINES, threshold : float = 0.5, interpolate : bool = true) -> Array:
+	var rows : int = getRows(bounds.size.y)
+	var cols : int = getCols(bounds.size.x)
 	var generated : Array = []
 	for j in range(0, rows - 1):
 		for i in range(0, cols - 1):
 			var index : int = i + j * cols
 			
-			var top_left : Quat = field[index]
-			var top_right : Quat = field[index + 1]
-			var bottom_right : Quat = field[index + 1 + cols]
-			var bottom_left : Quat = field[index + cols]
+			var top_left : FieldPoint = field[index]
+			var top_right : FieldPoint = field[index + 1]
+			var bottom_right : FieldPoint = field[index + 1 + cols]
+			var bottom_left : FieldPoint = field[index + cols]
 			
-			var case : int = getCase(top_left.w, top_right.w, bottom_right.w, bottom_left.w)
+			var case : int = getCase(top_left.state, top_right.state, bottom_right.state, bottom_left.state)
 			if march_type == MARCH_TYPE.CASES:
 				generated.append(case)
 			elif march_type == MARCH_TYPE.LINES:
@@ -316,13 +334,15 @@ func march(field : Array, rows : int, cols : int, march_type : int = MARCH_TYPE.
 
 
 
+func generateMetaballs(amount_range : Vector2, radius_range : Vector2, value_range : Vector2) -> Array:
+	return []
 
-func generateIsoCircles(amount_range : Vector2, radius_range : Vector2, threshold_range : Vector2) -> Array:
+func generateIsoCircles(bounds : Rect2, amount_range : Vector2, radius_range : Vector2, threshold_range : Vector2) -> Array:
 	var amount : int = rng.randi_range(amount_range.x, amount_range.y)
 	var circles : Array = []
 	for i in range(amount):
-		var x : float = rng.randf_range(0, size.x) + origin.x
-		var y : float = rng.randf_range(0, size.y) + origin.y
+		var x : float = rng.randf_range(0, bounds.size.x) + bounds.position.x + origin.x
+		var y : float = rng.randf_range(0, bounds.size.y) + bounds.position.y + origin.y
 		var r : float = rng.randf_range(radius_range.x, radius_range.y)
 		var v : float = rng.randf_range(threshold_range.x, threshold_range.y)
 #		var angle : float = rng.randf() * PI * 2.0
@@ -387,10 +407,10 @@ func getDistanceFactor(i : int, j : int, cols : int, rows : int, f : float = 1.0
 		var max_dis : float = ceil(max( max(cols, rows) * f * 0.5, min_h + 1) )
 		return min_h / max_dis
 
-func getMidpoint(p1 : Quat, p2 : Quat, threshold : float, interpolate : bool = true) -> Vector2:
+func getMidpoint(p1 : FieldPoint, p2 : FieldPoint, threshold : float, interpolate : bool = true) -> Vector2:
 	var t : float = 0.5
 	if interpolate:
-		t = getT(p1.z, p2.z, threshold)
+		t = getT(p1.v, p2.v, threshold)
 	
 	return lerp(Vector2(p1.x,p1.y), Vector2(p2.x,p2.y), t)
 
@@ -408,8 +428,11 @@ func getState(value, threshold) -> int:
 func getCase(a : int, b : int, c : int, d : int) -> int:
 	return a * 8 + b * 4 + c * 2 + d * 1
 
+func getRows(size_y : float) -> int:
+	return (floor(size_y / resolution) + 1) as int
 
-
+func getCols(size_x : float) -> int:
+	return (floor(size_x / resolution) + 1) as int
 
 
 
@@ -453,7 +476,7 @@ class FieldPoint:
 #	return map
 #
 #func generateFieldTiled(rows : int, cols : int, offset : Vector2, zoff : float = 0.0) -> Array:
-#	var noise_offset : Vector3 = noise_start_offset + Vector3(offset.x * noise_offset_factor.x, offset.y * noise_offset_factor.y, zoff)
+#	var noise_offset : Vector3 = noise_origin + Vector3(offset.x * noise_offset_factor.x, offset.y * noise_offset_factor.y, zoff)
 #	var field : Array = []
 #	var start : Vector2 = origin + offset
 #
